@@ -1,48 +1,84 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class FirestoreService {
-  // Collection reference
-  final CollectionReference notes =
-      FirebaseFirestore.instance.collection('notes');
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // Create a new note
-  Future<void> createNote(String content) async {
+  // Reference to the collections_metadata
+  final CollectionReference collectionsMetadata =
+      FirebaseFirestore.instance.collection('collections_metadata');
+
+  // Fetch the list of collection names
+  Future<List<String>> getCollectionNames() async {
     try {
-      await notes.add({
-        'content': content,
-        'timestamp': Timestamp.now(), // Changed to 'timestamp' field
+      final snapshot = await collectionsMetadata.get();
+      final List<String> collectionNames = [];
+      snapshot.docs.forEach((doc) {
+        collectionNames.add(doc.id);
       });
+      return collectionNames;
     } catch (e) {
-      print('Error creating note: $e');
-      throw e;
+      print('Error fetching collection names: $e');
+      return [];
     }
   }
 
-  // Update an existing note
-  Future<void> updateNote(String id, String content) async {
+  // Create a new collection and add an expense
+  Future<void> createCollectionAndAddExpense(
+      String collectionName, Map<String, dynamic> expenseData) async {
     try {
-      await notes.doc(id).update({
-        'content': content,
-        'timestamp': Timestamp.now(), // Changed to 'timestamp' field
+      // Add a document to collections_metadata
+      await collectionsMetadata.doc(collectionName).set({
+        'created_at': Timestamp.now(),
       });
+
+      // Add an expense to the collection
+      await _db.collection(collectionName).add(expenseData);
     } catch (e) {
-      print('Error updating note: $e');
+      print('Error creating collection and adding expense: $e');
       throw e;
     }
   }
 
-  // Delete a note
-  Future<void> deleteNote(String id) async {
+  // Create a new expense in an existing collection
+  Future<void> createExpenseInCollection(
+      String collectionName, Map<String, dynamic> expenseData) async {
     try {
-      await notes.doc(id).delete();
+      final collection = _db.collection(collectionName);
+      await collection.add(expenseData);
     } catch (e) {
-      print('Error deleting note: $e');
+      print('Error creating expense: $e');
       throw e;
     }
   }
 
-  // Stream of all notes
-  Stream<QuerySnapshot> getNotesStream() {
-    return notes.orderBy('timestamp', descending: true).snapshots();
+  // Update an existing expense
+  Future<void> updateExpense(String collectionName, String expenseId,
+      Map<String, dynamic> expenseData) async {
+    try {
+      final collection = _db.collection(collectionName);
+      await collection.doc(expenseId).update(expenseData);
+    } catch (e) {
+      print('Error updating expense: $e');
+      throw e;
+    }
+  }
+
+  // Delete an expense
+  Future<void> deleteExpense(String collectionName, String expenseId) async {
+    try {
+      final collection = _db.collection(collectionName);
+      await collection.doc(expenseId).delete();
+    } catch (e) {
+      print('Error deleting expense: $e');
+      throw e;
+    }
+  }
+
+  // Get expenses from a specific collection as a stream
+  Stream<QuerySnapshot> getExpensesStreamInCollection(String collectionName) {
+    return _db
+        .collection(collectionName)
+        .orderBy('date', descending: true)
+        .snapshots();
   }
 }

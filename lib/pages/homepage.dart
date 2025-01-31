@@ -11,15 +11,76 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final FirestoreService fireStoreData = FirestoreService();
-  final TextEditingController textController = TextEditingController();
+  final TextEditingController amountController = TextEditingController();
+  final TextEditingController categoryController = TextEditingController();
+  final TextEditingController paymentMethodController = TextEditingController();
+  final TextEditingController descriptionController = TextEditingController();
+  final TextEditingController notesController = TextEditingController();
+  final TextEditingController currencyController = TextEditingController();
+  final TextEditingController userIdController = TextEditingController();
+  final TextEditingController budgetController = TextEditingController();
+  List<String> collectionNames = [];
+  String? selectedCollection;
 
-  void openNoteDialog({String? noteId, String? initialContent}) {
-    textController.text = initialContent ?? '';
+  @override
+  void initState() {
+    super.initState();
+    _loadCollections();
+  }
+
+  // Load the collection names on init
+  void _loadCollections() async {
+    final names = await fireStoreData.getCollectionNames();
+    setState(() {
+      collectionNames = names;
+      selectedCollection = names.isNotEmpty ? names.first : null;
+    });
+  }
+
+  // Open the expense dialog
+  void openExpenseDialog({String? expenseId}) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(noteId != null ? 'Edit Note' : 'Add Note'),
-        content: TextField(controller: textController),
+        title: Text(expenseId != null ? 'Edit Expense' : 'Add Expense'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: amountController,
+              decoration: InputDecoration(hintText: 'Amount'),
+              keyboardType: TextInputType.number,
+            ),
+            TextField(
+              controller: categoryController,
+              decoration: InputDecoration(hintText: 'Category'),
+            ),
+            TextField(
+              controller: paymentMethodController,
+              decoration: InputDecoration(hintText: 'Payment Method'),
+            ),
+            TextField(
+              controller: descriptionController,
+              decoration: InputDecoration(hintText: 'Description'),
+            ),
+            TextField(
+              controller: notesController,
+              decoration: InputDecoration(hintText: 'Notes'),
+            ),
+            TextField(
+              controller: currencyController,
+              decoration: InputDecoration(hintText: 'Currency'),
+            ),
+            TextField(
+              controller: userIdController,
+              decoration: InputDecoration(hintText: 'User ID'),
+            ),
+            TextField(
+              controller: budgetController,
+              decoration: InputDecoration(hintText: 'Budget'),
+            ),
+          ],
+        ),
         actions: [
           ElevatedButton(
             onPressed: () {
@@ -27,27 +88,43 @@ class _HomePageState extends State<HomePage> {
             },
             child: Text('Cancel'),
             style: ButtonStyle(
-              backgroundColor: MaterialStateProperty.all<Color>(Colors.grey),
-            ),
+                backgroundColor: MaterialStateProperty.all<Color>(Colors.grey)),
           ),
           ElevatedButton(
             onPressed: () async {
+              final expenseData = {
+                'amount': double.tryParse(amountController.text.trim()) ?? 0.0,
+                'category': categoryController.text.trim(),
+                'date': Timestamp.now(),
+                'paymentMethod': paymentMethodController.text.trim(),
+                'description': descriptionController.text.trim(),
+                'notes': notesController.text.trim(),
+                'currency': currencyController.text.trim(),
+                'userId': userIdController.text.trim(),
+                'budget': budgetController.text.trim(),
+              };
               try {
-                if (noteId != null) {
-                  await fireStoreData.updateNote(noteId, textController.text);
-                } else {
-                  await fireStoreData.createNote(textController.text);
+                if (expenseId != null && selectedCollection != null) {
+                  await fireStoreData.updateExpense(
+                    selectedCollection!,
+                    expenseId,
+                    expenseData,
+                  );
+                } else if (selectedCollection != null) {
+                  await fireStoreData.createExpenseInCollection(
+                    selectedCollection!,
+                    expenseData,
+                  );
                 }
-                textController.clear();
                 Navigator.of(context).pop();
               } catch (e) {
-                print('Error saving note: $e');
+                print('Error saving expense: $e');
               }
             },
             child: Text('Save'),
             style: ButtonStyle(
-              backgroundColor: MaterialStateProperty.all<Color>(Colors.brown),
-            ),
+                backgroundColor:
+                    MaterialStateProperty.all<Color>(Colors.brown)),
           ),
         ],
       ),
@@ -56,94 +133,75 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('To Do App'),
-        backgroundColor: Colors.brown[200], // Lighter background color
-        elevation: 4, // Add elevation
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: fireStoreData.getNotesStream(),
+    return DefaultTabController(
+      length: collectionNames.length, // Number of tabs
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(
+            'Expense Tracker',
+            style: TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.brown[200],
+          elevation: 4,
+          bottom: collectionNames.isNotEmpty
+              ? TabBar(
+                  tabs: collectionNames
+                      .map((collectionName) => Tab(text: collectionName))
+                      .toList(),
+                  onTap: (index) {
+                    setState(() {
+                      selectedCollection = collectionNames[index];
+                    });
+                  },
+                )
+              : null,
+        ),
+        body: selectedCollection == null
+            ? Center(child: Text('No collections available'))
+            : StreamBuilder<QuerySnapshot>(
+                stream: fireStoreData
+                    .getExpensesStreamInCollection(selectedCollection!),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return CircularProgressIndicator();
+                    return Center(child: CircularProgressIndicator());
                   }
                   if (snapshot.hasError) {
-                    return Text('Error: ${snapshot.error}');
+                    return Center(child: Text('Error: ${snapshot.error}'));
                   }
-                  final notes = snapshot.data!.docs;
-                  // Debug: Print notes to terminal
-                  notes.forEach((note) {
-                    print('Note ID: ${note.id}');
-                    print('Note data: ${note.data()}');
-                  });
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return Center(child: Text('No expenses found'));
+                  }
+                  final expenses = snapshot.data!.docs;
                   return ListView.builder(
-                    itemCount: notes.length,
+                    itemCount: expenses.length,
                     itemBuilder: (context, index) {
-                      final noteData =
-                          notes[index].data() as Map<String, dynamic>;
-                      return Container(
-                        margin: EdgeInsets.all(15.0),
-                        padding: EdgeInsets.all(15.0),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[200], // Lighter background color
-                          borderRadius: BorderRadius.circular(10.0),
-                          boxShadow: [
-                            BoxShadow(
-                              color:
-                                  Colors.grey.withOpacity(0.5), // Shadow color
-                              spreadRadius: 2,
-                              blurRadius: 2,
-                              offset:
-                                  Offset(0, 3), // Changes position of shadow
-                            ),
-                          ],
+                      final expenseData =
+                          expenses[index].data() as Map<String, dynamic>;
+                      return ListTile(
+                        title: Text(
+                            '${expenseData['amount']} ${expenseData['currency']}'),
+                        subtitle: Text(
+                            '${expenseData['category']} - ${expenseData['paymentMethod']}'),
+                        trailing: IconButton(
+                          icon: Icon(Icons.delete),
+                          onPressed: () {
+                            fireStoreData.deleteExpense(
+                                selectedCollection!, expenses[index].id);
+                          },
                         ),
-                        child: ListTile(
-                          title: Text(noteData['content']),
-                          subtitle: Text(noteData['timestamp'] != null
-                              ? 'Created at: ${noteData['timestamp'].toDate()}'
-                              : ''),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: Icon(Icons.edit),
-                                onPressed: () {
-                                  openNoteDialog(
-                                    noteId: notes[index].id,
-                                    initialContent: noteData['content'],
-                                  );
-                                },
-                              ),
-                              IconButton(
-                                icon: Icon(Icons.delete),
-                                onPressed: () {
-                                  fireStoreData.deleteNote(notes[index].id);
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
+                        onTap: () {
+                          openExpenseDialog(expenseId: expenses[index].id);
+                        },
                       );
                     },
                   );
                 },
               ),
-            ),
-          ],
+        floatingActionButton: FloatingActionButton(
+          onPressed: openExpenseDialog,
+          backgroundColor: Colors.brown[200],
+          child: Icon(Icons.add),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.brown[200],
-        onPressed: openNoteDialog,
-        child: Icon(Icons.add),
-        elevation: 8, // Add elevation
       ),
     );
   }
